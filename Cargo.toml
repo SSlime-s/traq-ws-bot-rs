@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "bot-core",
+  "macros",
+  "example",
+]

@@ -1,0 +1,20 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Keys {
+    Ping,
+    Joined,
+    Left,
+    MessageCreated,
+    MessageUpdated,
+    MessageDeleted,
+    BotMessageStampsUpdated,
+    DirectMessageCreated,
+    DirectMessageUpdated,
+    DirectMessageDeleted,
+    ChannelCreated,
+    ChannelTopicChanged,
+    UserCreated,
+    StampCreated,
+    TagAdded,
+    TagRemoved,
+    Error,
+}
