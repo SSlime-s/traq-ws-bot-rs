@@ -25,6 +25,7 @@ macro_rules! on_x_payload {
     ($($x:ident),*$(,)?) => {
         $(
             paste! {
+                #[doc = [<$x:camel>] イベントを受け取った際のハンドラを登録する]
                 pub fn [<on_ $x:snake>]<F: Fn(&payload::[<$x:camel>]) + 'static>(mut self, handler: F) -> Self {
                     let handler = convert_handler!(handler => [<$x:camel>]);
                     self.handlers
@@ -33,6 +34,7 @@ macro_rules! on_x_payload {
                         .push(Box::new(handler));
                     self
                 }
+                #[doc = [<$x:camel>] イベントを受け取った際のハンドラを複数同時に登録する]
                 pub fn [<on_ $x:snake _multi>]<F: Fn(&payload::[<$x:camel>]) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
                     let handlers: Vec<_> = handlers.into();
                     let entry = self.handlers.entry(keys::Keys::[<$x:camel>]).or_insert(vec![]);
@@ -101,6 +103,7 @@ impl TraqBot {
         }
     }
 
+    /// BOT を起動する
     pub async fn start(&self) -> anyhow::Result<()> {
         let host = self.get_ws_url().host_str().unwrap().to_owned();
         let request = http::Request::builder()
@@ -155,6 +158,7 @@ impl TraqBot {
         Ok(())
     }
 
+    /// イベントに対してハンドラを呼び出す
     async fn handle_event(&self, event: &Events) {
         handle_event_inner!(
             self,
@@ -180,6 +184,9 @@ impl TraqBot {
         )
     }
 
+    /// key のイベントに対応するハンドラを設定する
+    ///
+    /// ハンドラに渡される enum は key で指定したイベントであることが保証される
     pub fn on_event<F: Fn(&Events) + 'static>(mut self, key: keys::Keys, handler: F) -> Self {
         self.handlers
             .entry(key)
@@ -187,6 +194,9 @@ impl TraqBot {
             .push(Box::new(handler));
         self
     }
+    /// key のイベントに対応するハンドラを複数同時に設定する
+    ///
+    /// ハンドラに渡される enum は key で指定したイベントであることが保証される
     pub fn on_event_multi<F: Fn(&Events) + 'static, Fs: Into<Vec<F>>>(
         mut self,
         key: keys::Keys,
@@ -219,19 +229,16 @@ impl TraqBot {
         TagRemoved,
     );
 
+    #[doc = "Error イベントを受け取った際のハンドラを登録する"]
     pub fn on_error<F: Fn(&str) + 'static>(mut self, handler: F) -> Self {
-        // let handler = convert_handler!(handler => Error);
-        let handler = move |event: &Events| {
-            if let Events::Error(error) = event {
-                handler(error)
-            }
-        };
+        let handler = convert_handler!(handler => Error);
         self.handlers
             .entry(keys::Keys::Error)
             .or_insert(vec![])
             .push(Box::new(handler));
         self
     }
+    #[doc = "Error イベントを受け取った際のハンドラを複数同時に登録する"]
     pub fn on_error_multi<F: Fn(&str) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
         let handlers: Vec<_> = handlers.into();
         let entry = self.handlers.entry(keys::Keys::Error).or_insert(vec![]);
@@ -242,9 +249,11 @@ impl TraqBot {
         self
     }
 
+    /// ws もしくは wss で始まる origin に相当する URL を返す
     pub fn get_ws_origin(&self) -> Url {
         self.ws_origin.clone()
     }
+    /// http もしくは https で始まる origin に相当する URL を返す
     pub fn get_http_origin(&self) -> Url {
         let mut origin = self.get_ws_origin();
         match origin.scheme() {
@@ -255,9 +264,11 @@ impl TraqBot {
         origin
     }
 
+    /// ws もしくは wss で始まる gateway の URL を返す
     pub fn get_ws_url(&self) -> Url {
         self.ws_origin.join(&self.gateway_path).unwrap()
     }
+    /// http もしくは https で始まる gateway の URL を返す
     pub fn get_http_url(&self) -> Url {
         let mut url = self.get_ws_url();
         match url.scheme() {
@@ -268,9 +279,11 @@ impl TraqBot {
         url
     }
 
+    /// bot access token を更新する
     pub fn set_bear_token(&mut self, bear_token: &str) {
         self.bear_token = bear_token.into();
     }
+    /// bot access token を返す
     pub fn get_bear_token(&self) -> &str {
         &self.bear_token
     }
