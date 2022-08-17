@@ -17,6 +17,11 @@ pub type Handler = Box<dyn Fn(&Events)>;
 pub type OnPanic = Box<dyn Any + Send>;
 pub type OnPanicHandler = Box<dyn Fn(OnPanic)>;
 
+pub const TRAQ_ORIGIN: &str = "https://q.trap.jp";
+pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
+
+pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bot/ws";
+
 pub struct TraqBot {
     bear_token: String,
     ws_origin: Url,
@@ -310,8 +315,8 @@ impl Default for TraqBot {
     fn default() -> Self {
         Self {
             bear_token: Default::default(),
-            ws_origin: Url::parse("wss://q.trap.jp").unwrap(),
-            gateway_path: "/api/v3/bot/ws".to_owned(),
+            ws_origin: Url::parse(TRAQ_ORIGIN_WS).unwrap(),
+            gateway_path: TRAQ_WS_GATEWAY_PATH.to_owned(),
             handlers: Default::default(),
             on_handler_panic: Box::new(|e| {
                 eprintln!("{:?}", e);
