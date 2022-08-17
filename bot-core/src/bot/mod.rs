@@ -21,7 +21,7 @@ pub type OnPanicHandler = Box<dyn Fn(OnPanic)>;
 pub const TRAQ_ORIGIN: &str = "https://q.trap.jp";
 pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
 
-pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bot/ws";
+pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bots/ws";
 
 pub struct TraqBotBuilder {
     authorization_scheme: String,
@@ -359,8 +359,12 @@ impl TraqBotBuilder {
     /// Bot が参加するための WebSocket の URL を指定する
     ///
     /// **Default** `wss://q.trap.jp/api/v3/bot/ws`
-    pub fn set_target_url(mut self, url: impl Into<Url>) -> Self {
-        self.target_url = url.into();
+    pub fn set_target_url<U>(mut self, url: U) -> Self
+    where
+        U: TryInto<Url>,
+        U::Error: std::fmt::Debug,
+    {
+        self.target_url = url.try_into().unwrap();
         self
     }
 
