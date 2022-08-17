@@ -1,4 +1,4 @@
-use traq_ws_bot_rs::bot::TraqBot;
+use traq_ws_bot::bot::builder;
 
 #[tokio::main]
 async fn main() {
@@ -6,8 +6,11 @@ async fn main() {
 
     let bot_access_token = std::env::var("BOT_ACCESS_TOKEN").unwrap_or_else(|_| String::new());
 
-    let bot = TraqBot::new(bot_access_token, "ws://localhost:3000").on_message_created(|event| {
-        println!("{:?}", event);
-    });
+    let bot = builder(bot_access_token)
+        .on_direct_message_created(|event| {
+            println!("{:?}", event);
+        })
+        .build();
+
     bot.start().await.unwrap();
 }
