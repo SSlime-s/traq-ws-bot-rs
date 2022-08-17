@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Keys {
-    Ping,
+    Ping = 0,
     Joined,
     Left,
     MessageCreated,
@@ -18,3 +18,5 @@ pub enum Keys {
     TagRemoved,
     Error,
 }
+
+pub const KEYS_COUNT: usize = Keys::Error as usize + 1;

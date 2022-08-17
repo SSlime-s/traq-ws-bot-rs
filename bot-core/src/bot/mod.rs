@@ -22,12 +22,21 @@ pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
 
 pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bot/ws";
 
+pub struct TraqBotBuilder {
+    authorization_scheme: String,
+    token: String,
+    target_url: Url,
+    handlers: ArrayVec<Vec<Handler>, { keys::KEYS_COUNT }>,
+    on_handler_panic: Option<OnPanicHandler>,
+}
+
 pub struct TraqBot {
-    bear_token: String,
+    authorization_scheme: String,
+    token: String,
     ws_origin: Url,
     gateway_path: String,
-    handlers: HashMap<keys::Keys, Vec<Handler>>,
-    on_handler_panic: OnPanicHandler,
+    handlers: ArrayVec<Box<[Handler]>, { keys::KEYS_COUNT }>,
+    on_handler_panic: Option<OnPanicHandler>,
 }
 
 macro_rules! on_x_payload {
@@ -37,10 +46,7 @@ macro_rules! on_x_payload {
                 #[doc = [<$x:camel>] イベントを受け取った際のハンドラを登録する]
                 pub fn [<on_ $x:snake>]<F: Fn(&payload::[<$x:camel>]) + 'static>(mut self, handler: F) -> Self {
                     let handler = convert_handler!(handler => [<$x:camel>]);
-                    self.handlers
-                        .entry(keys::Keys::[<$x:camel>])
-                        .or_insert(vec![])
-                        .push(Box::new(handler));
+                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
                     self
                 }
                 #[doc = [<$x:camel>] イベントを受け取った際のハンドラを複数同時に登録する]
@@ -64,12 +70,16 @@ macro_rules! handle_event_inner {
             match $event {
                 $(
                     Events::[<$x:camel>](_) => {
-                        for handler in $self.handlers.get(&keys::Keys::[<$x:camel>]).unwrap_or(&vec![]) {
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        for handler in $self.handlers[keys::Keys::[<$x:camel>] as usize].iter() {
+                            if let Some(on_panic) = &$self.on_handler_panic {
+                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    handler(&$event);
+                                }));
+                                if let Err(err) = result {
+                                    on_panic(err)
+                                }
+                            } else {
                                 handler(&$event);
-                            }));
-                            if let Err(e) = result {
-                                ($self.on_handler_panic)(e);
                             }
                         }
                     }
@@ -80,44 +90,6 @@ macro_rules! handle_event_inner {
 }
 
 impl TraqBot {
-    pub fn new<U>(bear_token: impl Into<String>, target_url: U) -> Self
-    where
-        U: TryInto<Url>,
-        U::Error: Debug,
-    {
-        let mut bot: Self = Default::default();
-
-        let bear_token = bear_token.into();
-        let mut target_url: Url = target_url.try_into().unwrap();
-        let ws_target_url = match target_url.scheme() {
-            "wss" | "ws" => target_url,
-            "http" => {
-                target_url.set_scheme("ws").unwrap();
-                target_url
-            }
-            "https" => {
-                target_url.set_scheme("wss").unwrap();
-                target_url
-            }
-            _ => panic!(
-                "unsupported scheme: {} (supported: ws, wss, http, https)",
-                target_url.scheme()
-            ),
-        };
-        let ws_origin = ws_target_url
-            .origin()
-            .ascii_serialization()
-            .parse()
-            .unwrap();
-        let gateway_path = ws_target_url.path().to_owned();
-
-        bot.bear_token = bear_token;
-        bot.ws_origin = ws_origin;
-        bot.gateway_path = gateway_path;
-
-        bot
-    }
-
     /// BOT を起動する
     pub async fn start(&self) -> anyhow::Result<()> {
         let host = self.get_ws_url().host_str().unwrap().to_owned();
@@ -129,7 +101,10 @@ impl TraqBot {
             .header("Sec-Websocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
             .uri(self.get_ws_url().to_string())
-            .header("Authorization", format!("Bearer {}", self.bear_token))
+            .header(
+                "Authorization",
+                format!("{} {}", self.authorization_scheme, self.token),
+            )
             .body(())?;
 
         let (ws_stream, _) = connect_async(request).await?;
@@ -203,20 +178,9 @@ impl TraqBot {
         url
     }
 
-    /// bot access token を更新する
-    pub fn set_bear_token(&mut self, bear_token: &str) {
-        self.bear_token = bear_token.into();
-    }
     /// bot access token を返す
-    pub fn get_bear_token(&self) -> &str {
-        &self.bear_token
-    }
-
-    /// 登録したハンドラが panic した際のハンドラを設定する
-    ///
-    /// **Warning**: このハンドラが panic した場合、プログラムが終了します
-    pub fn set_on_panic_handler<F: Fn(OnPanic) + 'static>(&mut self, handler: F) {
-        self.on_handler_panic = Box::new(handler);
+    pub fn get_token(&self) -> &str {
+        &self.token
     }
 
     /// イベントに対してハンドラを呼び出す
@@ -244,15 +208,119 @@ impl TraqBot {
             }
         )
     }
+}
+
+/// TraqBot の Builder を作成する
+pub fn builder(token: impl Into<String>) -> TraqBotBuilder {
+    TraqBotBuilder {
+        token: token.into(),
+        ..Default::default()
+    }
+}
+
+#[doc(hidden)]
+#[allow(unused)]
+#[rustfmt::skip]
+/*pub */ fn builder_with_config(_config: ()) -> TraqBotBuilder {
+    unimplemented!()
+}
+
+impl Default for TraqBotBuilder {
+    fn default() -> Self {
+        let handlers_arr: [Vec<_>; keys::KEYS_COUNT] = Default::default();
+
+        Self {
+            authorization_scheme: "Bearer".to_owned(),
+            token: Default::default(),
+            target_url: Url::parse(TRAQ_ORIGIN_WS)
+                .unwrap()
+                .join(TRAQ_WS_GATEWAY_PATH)
+                .unwrap(),
+            handlers: ArrayVec::from(handlers_arr),
+            on_handler_panic: Some(Box::new(|e| {
+                eprintln!("{:?}", e);
+            })),
+        }
+    }
+}
+
+fn convert_to_ws_url<U>(url: U) -> anyhow::Result<Url>
+where
+    U: TryInto<Url>,
+    U::Error: std::error::Error + Send + Sync + 'static,
+{
+    let mut url = url.try_into()?;
+    match url.scheme() {
+        "wss" | "ws" => Ok(url),
+        "http" => {
+            url.set_scheme("ws").unwrap();
+            Ok(url)
+        }
+        "https" => {
+            url.set_scheme("wss").unwrap();
+            Ok(url)
+        }
+        _ => Err(anyhow::anyhow!(
+            "Invalid scheme: {} (expected: ws, wss, http, https)",
+            url.scheme()
+        )),
+    }
+}
+
+impl TraqBotBuilder {
+    pub fn build(self) -> TraqBot {
+        let target_url_ws = convert_to_ws_url(self.target_url).unwrap();
+        let ws_origin = target_url_ws
+            .origin()
+            .ascii_serialization()
+            .parse()
+            .unwrap();
+        let gateway_path = target_url_ws.path().to_owned();
+
+        TraqBot {
+            authorization_scheme: self.authorization_scheme,
+            token: self.token,
+            ws_origin,
+            gateway_path,
+            handlers: self
+                .handlers
+                .into_iter()
+                .map(|v| v.into_boxed_slice())
+                .collect(),
+            on_handler_panic: self.on_handler_panic,
+        }
+    }
+
+    /// 認証の scheme を指定する
+    ///
+    /// **Default** `Bearer`
+    pub fn set_auth_scheme(mut self, scheme: impl Into<String>) -> Self {
+        self.authorization_scheme = scheme.into();
+        self
+    }
+    /// Bot の access token を指定する
+    pub fn set_token(mut self, token: impl Into<String>) -> Self {
+        self.token = token.into();
+        self
+    }
+    /// Bot が参加するための WebSocket の URL を指定する
+    ///
+    /// **Default** `wss://q.trap.jp/api/v3/bot/ws`
+    pub fn set_target_url(mut self, url: impl Into<Url>) -> Self {
+        self.target_url = url.into();
+        self
+    }
+
+    pub fn set_on_panic_handler<F: Fn(OnPanic) + 'static>(mut self, handler: F) -> Self {
+        self.on_handler_panic = Some(Box::new(handler));
+        self
+    }
 
     /// key のイベントに対応するハンドラを設定する
     ///
     /// ハンドラに渡される enum は key で指定したイベントであることが保証される
     pub fn on_event<F: Fn(&Events) + 'static>(mut self, key: keys::Keys, handler: F) -> Self {
-        self.handlers
-            .entry(key)
-            .or_insert(vec![])
-            .push(Box::new(handler));
+        self.handlers[key as usize].push(Box::new(handler));
         self
     }
     /// key のイベントに対応するハンドラを複数同時に設定する
@@ -264,9 +332,8 @@ impl TraqBot {
         handlers: Fs,
     ) -> Self {
         let handlers: Vec<_> = handlers.into();
-        let entry = self.handlers.entry(key).or_insert(vec![]);
         for handler in handlers {
-            entry.push(Box::new(handler));
+            self.handlers[key as usize].push(Box::new(handler));
         }
         self
     }
@@ -293,34 +360,16 @@ impl TraqBot {
     #[doc = "Error イベントを受け取った際のハンドラを登録する"]
     pub fn on_error<F: Fn(&str) + 'static>(mut self, handler: F) -> Self {
         let handler = convert_handler!(handler => Error);
-        self.handlers
-            .entry(keys::Keys::Error)
-            .or_insert(vec![])
-            .push(Box::new(handler));
+        self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
         self
     }
     #[doc = "Error イベントを受け取った際のハンドラを複数同時に登録する"]
     pub fn on_error_multi<F: Fn(&str) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
         let handlers: Vec<_> = handlers.into();
-        let entry = self.handlers.entry(keys::Keys::Error).or_insert(vec![]);
         for handler in handlers {
             let handler = convert_handler!(handler => Error);
-            entry.push(Box::new(handler));
+            self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
         }
         self
-    }
-}
-
-impl Default for TraqBot {
-    fn default() -> Self {
-        Self {
-            bear_token: Default::default(),
-            ws_origin: Url::parse(TRAQ_ORIGIN_WS).unwrap(),
-            gateway_path: TRAQ_WS_GATEWAY_PATH.to_owned(),
-            handlers: Default::default(),
-            on_handler_panic: Box::new(|e| {
-                eprintln!("{:?}", e);
-            }),
-        }
     }
 }
