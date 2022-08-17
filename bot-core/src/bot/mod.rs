@@ -168,6 +168,45 @@ impl TraqBot {
         Ok(())
     }
 
+    /// ws もしくは wss で始まる origin に相当する URL を返す
+    pub fn get_ws_origin(&self) -> Url {
+        self.ws_origin.clone()
+    }
+    /// http もしくは https で始まる origin に相当する URL を返す
+    pub fn get_http_origin(&self) -> Url {
+        let mut origin = self.get_ws_origin();
+        match origin.scheme() {
+            "wss" => origin.set_scheme("https").unwrap(),
+            "ws" => origin.set_scheme("http").unwrap(),
+            _ => panic!("Invalid scheme: {} (expected: ws, wss)", origin.scheme()),
+        }
+        origin
+    }
+
+    /// ws もしくは wss で始まる gateway の URL を返す
+    pub fn get_ws_url(&self) -> Url {
+        self.ws_origin.join(&self.gateway_path).unwrap()
+    }
+    /// http もしくは https で始まる gateway の URL を返す
+    pub fn get_http_url(&self) -> Url {
+        let mut url = self.get_ws_url();
+        match url.scheme() {
+            "wss" => url.set_scheme("https").unwrap(),
+            "ws" => url.set_scheme("http").unwrap(),
+            _ => panic!("Invalid scheme: {} (expected: ws, wss)", url.scheme()),
+        }
+        url
+    }
+
+    /// bot access token を更新する
+    pub fn set_bear_token(&mut self, bear_token: &str) {
+        self.bear_token = bear_token.into();
+    }
+    /// bot access token を返す
+    pub fn get_bear_token(&self) -> &str {
+        &self.bear_token
+    }
+
     /// 登録したハンドラが panic した際のハンドラを設定する
     ///
     /// **Warning**: このハンドラが panic した場合、プログラムが終了します
@@ -264,45 +303,6 @@ impl TraqBot {
             entry.push(Box::new(handler));
         }
         self
-    }
-
-    /// ws もしくは wss で始まる origin に相当する URL を返す
-    pub fn get_ws_origin(&self) -> Url {
-        self.ws_origin.clone()
-    }
-    /// http もしくは https で始まる origin に相当する URL を返す
-    pub fn get_http_origin(&self) -> Url {
-        let mut origin = self.get_ws_origin();
-        match origin.scheme() {
-            "wss" => origin.set_scheme("https").unwrap(),
-            "ws" => origin.set_scheme("http").unwrap(),
-            _ => panic!("Invalid scheme: {} (expected: ws, wss)", origin.scheme()),
-        }
-        origin
-    }
-
-    /// ws もしくは wss で始まる gateway の URL を返す
-    pub fn get_ws_url(&self) -> Url {
-        self.ws_origin.join(&self.gateway_path).unwrap()
-    }
-    /// http もしくは https で始まる gateway の URL を返す
-    pub fn get_http_url(&self) -> Url {
-        let mut url = self.get_ws_url();
-        match url.scheme() {
-            "wss" => url.set_scheme("https").unwrap(),
-            "ws" => url.set_scheme("http").unwrap(),
-            _ => panic!("Invalid scheme: {} (expected: ws, wss)", url.scheme()),
-        }
-        url
-    }
-
-    /// bot access token を更新する
-    pub fn set_bear_token(&mut self, bear_token: &str) {
-        self.bear_token = bear_token.into();
-    }
-    /// bot access token を返す
-    pub fn get_bear_token(&self) -> &str {
-        &self.bear_token
     }
 }
 
