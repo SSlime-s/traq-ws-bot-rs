@@ -1,5 +1,6 @@
-use std::{any::Any, collections::HashMap, fmt::Debug};
+use std::any::Any;
 
+use arrayvec::ArrayVec;
 use futures::{future, StreamExt};
 use paste::paste;
 use reqwest::Url;
@@ -43,19 +44,30 @@ macro_rules! on_x_payload {
     ($($x:ident),*$(,)?) => {
         $(
             paste! {
-                #[doc = [<$x:camel>] イベントを受け取った際のハンドラを登録する]
+                #[doc = ""[<$x:camel>]" イベントを受け取った際のハンドラを登録する"]
+                #[doc = ""]
+                #[doc = "# Example"]
+                #[doc = "```rust"]
+                #[doc = "use traq_ws_bot::bot::builder;"]
+                #[doc = ""]
+                #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
+                #[doc = "    ."[<on_ $x:snake>]"(|event| {"]
+                #[doc = "        println!(\"{:?}\", event);"]
+                #[doc = "    })"]
+                #[doc = "    .build();"]
+                #[doc = "```"]
                 pub fn [<on_ $x:snake>]<F: Fn(&payload::[<$x:camel>]) + 'static>(mut self, handler: F) -> Self {
                     let handler = convert_handler!(handler => [<$x:camel>]);
                     self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
                     self
                 }
                 #[doc = [<$x:camel>] イベントを受け取った際のハンドラを複数同時に登録する]
+                #[doc(hidden)]
                 pub fn [<on_ $x:snake _multi>]<F: Fn(&payload::[<$x:camel>]) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
                     let handlers: Vec<_> = handlers.into();
-                    let entry = self.handlers.entry(keys::Keys::[<$x:camel>]).or_insert(vec![]);
                     for handler in handlers {
                         let handler = convert_handler!(handler => [<$x:camel>]);
-                        entry.push(Box::new(handler));
+                        self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
                     }
                     self
                 }
@@ -91,6 +103,27 @@ macro_rules! handle_event_inner {
 
 impl TraqBot {
     /// BOT を起動する
+    ///
+    /// # Examples
+    /// ```rust
+    /// use traq_ws_bot::bot::builder;
+    ///
+    /// # async fn try_main() -> anyhow::Result<()> {
+    /// let bot = builder("BOT_ACCESS_TOKEN")
+    ///     .on_message_created(|event| {
+    ///       println!("{:?}", event);
+    ///     })
+    ///     .build();
+    /// bot.start().await?;
+    /// # Ok(())
+    /// # }
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> anyhow::Result<()> {
+    /// #     let _ = try_main().await;
+    /// #     Ok(())
+    /// # }
+    /// ```
     pub async fn start(&self) -> anyhow::Result<()> {
         let host = self.get_ws_url().host_str().unwrap().to_owned();
         let request = http::Request::builder()
@@ -149,10 +182,14 @@ impl TraqBot {
     }
 
     /// ws もしくは wss で始まる origin に相当する URL を返す
+    ///
+    /// **Example** `wss://q.trap.jp`, `ws://localhost:8080`
     pub fn get_ws_origin(&self) -> Url {
         self.ws_origin.clone()
     }
     /// http もしくは https で始まる origin に相当する URL を返す
+    ///
+    /// **Example** `https://q.trap.jp`, `http://localhost:8080`
     pub fn get_http_origin(&self) -> Url {
         let mut origin = self.get_ws_origin();
         match origin.scheme() {
@@ -164,10 +201,14 @@ impl TraqBot {
     }
 
     /// ws もしくは wss で始まる gateway の URL を返す
+    ///
+    /// **Example** `wss://q.trap.jp/api/v3/bot/ws`
     pub fn get_ws_url(&self) -> Url {
         self.ws_origin.join(&self.gateway_path).unwrap()
     }
     /// http もしくは https で始まる gateway の URL を返す
+    ///
+    /// **Example** `https://q.trap.jp/api/v3/bot/ws`
     pub fn get_http_url(&self) -> Url {
         let mut url = self.get_ws_url();
         match url.scheme() {
@@ -268,6 +309,18 @@ where
 }
 
 impl TraqBotBuilder {
+    /// TraqBotBuilder から TraqBot を作成する
+    ///
+    /// # Example
+    /// ```
+    /// use traq_ws_bot::bot::builder;
+    ///
+    /// let bot = builder("BOT_ACCESS_TOKEN")
+    ///     .on_message_created(|event| {
+    ///         println!("{:?}", event);
+    ///     })
+    ///    .build();
+    /// ```
     pub fn build(self) -> TraqBot {
         let target_url_ws = convert_to_ws_url(self.target_url).unwrap();
         let ws_origin = target_url_ws
@@ -311,6 +364,20 @@ impl TraqBotBuilder {
         self
     }
 
+    /// 登録したハンドラが panic した際のハンドラを設定する
+    ///
+    /// **Warning**: このハンドラが panic した場合、プログラムが終了します
+    ///
+    /// # Example
+    /// ```rust
+    /// use traq_ws_bot::bot::builder;
+    ///
+    /// let bot = builder("BOT_ACCESS_TOKEN")
+    ///     .set_on_panic_handler(|e| {
+    ///         eprintln!("handler is panicked: {:?}", e);
+    ///     })
+    ///    .build();
+    /// ```
     pub fn set_on_panic_handler<F: Fn(OnPanic) + 'static>(mut self, handler: F) -> Self {
         self.on_handler_panic = Some(Box::new(handler));
         self
@@ -319,6 +386,19 @@ impl TraqBotBuilder {
     /// key のイベントに対応するハンドラを設定する
     ///
     /// ハンドラに渡される enum は key で指定したイベントであることが保証される
+    ///
+    /// # Example
+    /// ```rust
+    /// use traq_ws_bot::{bot::{builder, keys::Keys}, events::Events};
+    ///
+    /// let bot = builder("BOT_ACCESS_TOKEN")
+    ///     .on_event(Keys::Joined, |event| {
+    ///        if let Events::Joined(event) = event {
+    ///           println!("{:?}", event);
+    ///       }
+    ///    })
+    ///   .build();
+    /// ```
     pub fn on_event<F: Fn(&Events) + 'static>(mut self, key: keys::Keys, handler: F) -> Self {
         self.handlers[key as usize].push(Box::new(handler));
         self
@@ -326,6 +406,7 @@ impl TraqBotBuilder {
     /// key のイベントに対応するハンドラを複数同時に設定する
     ///
     /// ハンドラに渡される enum は key で指定したイベントであることが保証される
+    #[doc(hidden)]
     pub fn on_event_multi<F: Fn(&Events) + 'static, Fs: Into<Vec<F>>>(
         mut self,
         key: keys::Keys,
@@ -358,12 +439,24 @@ impl TraqBotBuilder {
     );
 
     #[doc = "Error イベントを受け取った際のハンドラを登録する"]
+    #[doc = ""]
+    #[doc = "# Example"]
+    #[doc = "```rust"]
+    #[doc = "use traq_ws_bot::bot::builder;"]
+    #[doc = ""]
+    #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
+    #[doc = "    .on_error(|event| {"]
+    #[doc = "        println!(\"{:?}\", event);"]
+    #[doc = "    })"]
+    #[doc = "    .build();"]
+    #[doc = "```"]
     pub fn on_error<F: Fn(&str) + 'static>(mut self, handler: F) -> Self {
         let handler = convert_handler!(handler => Error);
         self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
         self
     }
     #[doc = "Error イベントを受け取った際のハンドラを複数同時に登録する"]
+    #[doc(hidden)]
     pub fn on_error_multi<F: Fn(&str) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
         let handlers: Vec<_> = handlers.into();
         for handler in handlers {
