@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{any::Any, collections::HashMap, fmt::Debug};
 
 use futures::{future, StreamExt};
 use paste::paste;
@@ -12,13 +12,17 @@ use crate::events::{convert_handler, payload, Events};
 
 pub mod keys;
 
-type Handler = Box<dyn Fn(&Events)>;
+pub type Handler = Box<dyn Fn(&Events)>;
+
+pub type OnPanic = Box<dyn Any + Send>;
+pub type OnPanicHandler = Box<dyn Fn(OnPanic)>;
 
 pub struct TraqBot {
     bear_token: String,
     ws_origin: Url,
     gateway_path: String,
     handlers: HashMap<keys::Keys, Vec<Handler>>,
+    on_handler_panic: OnPanicHandler,
 }
 
 macro_rules! on_x_payload {
@@ -56,7 +60,12 @@ macro_rules! handle_event_inner {
                 $(
                     Events::[<$x:camel>](_) => {
                         for handler in $self.handlers.get(&keys::Keys::[<$x:camel>]).unwrap_or(&vec![]) {
-                            handler(&$event);
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                handler(&$event);
+                            }));
+                            if let Err(e) = result {
+                                ($self.on_handler_panic)(e);
+                            }
                         }
                     }
                 )*
@@ -71,6 +80,8 @@ impl TraqBot {
         U: TryInto<Url>,
         U::Error: Debug,
     {
+        let mut bot: Self = Default::default();
+
         let bear_token = bear_token.into();
         let mut target_url: Url = target_url.try_into().unwrap();
         let ws_target_url = match target_url.scheme() {
@@ -94,13 +105,12 @@ impl TraqBot {
             .parse()
             .unwrap();
         let gateway_path = ws_target_url.path().to_owned();
-        let handlers = HashMap::new();
-        Self {
-            bear_token,
-            ws_origin,
-            gateway_path,
-            handlers,
-        }
+
+        bot.bear_token = bear_token;
+        bot.ws_origin = ws_origin;
+        bot.gateway_path = gateway_path;
+
+        bot
     }
 
     /// BOT を起動する
@@ -156,6 +166,13 @@ impl TraqBot {
         let (_write_res, _read_res) = (write_res?, read_res);
 
         Ok(())
+    }
+
+    /// 登録したハンドラが panic した際のハンドラを設定する
+    ///
+    /// **Warning**: このハンドラが panic した場合、プログラムが終了します
+    pub fn set_on_panic_handler<F: Fn(OnPanic) + 'static>(&mut self, handler: F) {
+        self.on_handler_panic = Box::new(handler);
     }
 
     /// イベントに対してハンドラを呼び出す
@@ -296,6 +313,9 @@ impl Default for TraqBot {
             ws_origin: Url::parse("wss://q.trap.jp").unwrap(),
             gateway_path: "/api/v3/bot/ws".to_owned(),
             handlers: Default::default(),
+            on_handler_panic: Box::new(|e| {
+                eprintln!("{:?}", e);
+            }),
         }
     }
 }
