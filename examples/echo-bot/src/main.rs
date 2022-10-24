@@ -1,4 +1,3 @@
-use reqwest::header::CONTENT_TYPE;
 use traq_ws_bot::{
     bot::{builder, TRAQ_ORIGIN},
     utils::create_client,
@@ -19,18 +18,12 @@ async fn main() {
                 TRAQ_ORIGIN, event.message.channel_id
             );
 
-            let body = format!(
-                "{{\"content\": \"{}\", \"embed\": false}}",
-                event.message.plain_text
-            );
+            let body = serde_json::json!({
+                "content": event.message.plain_text,
+                "embed": false
+            });
 
-            let res = client
-                .post(&url)
-                .header(CONTENT_TYPE, "application/json")
-                .body(body)
-                .send()
-                .await
-                .unwrap();
+            let res = client.post(&url).json(&body).send().await.unwrap();
 
             dbg!(res.status());
         })
