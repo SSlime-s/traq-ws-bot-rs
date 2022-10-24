@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, sync::Arc, collections::HashSet};
 
 use arrayvec::ArrayVec;
 use futures::{
@@ -379,9 +379,12 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
         self
     }
 
-    /// key のイベントに対応するハンドラを設定する
+    /// keys のイベントに対応するハンドラを設定する
+    /// keys は複数同時に指定可能
     ///
-    /// ハンドラに渡される enum は key で指定したイベントであることが保証される
+    /// ハンドラに渡される enum は key で指定したイベントに含まれることが保証される
+    ///
+    /// **NOTE** 全ての key を指定したい場合は KEYS_ALL を用いると良い
     ///
     /// # Example
     /// ```rust
@@ -395,11 +398,29 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     ///    })
     ///   .build();
     /// ```
-    pub fn on_event<Fut>(mut self, key: keys::Keys, handler: fn(Events) -> Fut) -> Self
+    ///
+    /// ```rust
+    /// use traq_ws_bot::{bot::{builder, keys::Keys}, events::Events};
+    ///
+    /// let bot = builder("BOT_ACCESS_TOKEN")
+    ///     .on_event([Keys::Joined, Keys::Left], |event| async move {
+    ///         match event {
+    ///             Events::Joined(event) => println!("{:?}", event),
+    ///             Events::Left(event) => println!("{:?}", event),
+    ///             _ => unreachable!(),
+    ///         }
+    ///     })
+    ///     .build();
+    /// ```
+    pub fn on_event<Fut, K>(mut self, keys: K, handler: fn(Events) -> Fut) -> Self
     where
         Fut: Future<Output = ()> + std::marker::Send + 'static,
+        K: IntoIterator<Item = keys::Keys>,
     {
-        self.handlers[key as usize].push(Box::new(handler));
+        let keys_set = keys.into_iter().collect::<HashSet<_>>();
+        for key in keys_set {
+            self.handlers[key as usize].push(Box::new(handler));
+        }
         self
     }
 
