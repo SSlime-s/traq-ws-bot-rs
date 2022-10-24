@@ -485,14 +485,4 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
             ..Default::default()
         }
     }
-    #[doc = "Error イベントを受け取った際のハンドラを複数同時に登録する"]
-    #[doc(hidden)]
-    pub fn on_error_multi<F: Fn(&str) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
-        let handlers: Vec<_> = handlers.into();
-        for handler in handlers {
-            let handler = convert_handler!(handler => Error);
-            self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
-        }
-        self
-    }
 }
