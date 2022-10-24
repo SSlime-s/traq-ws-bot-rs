@@ -55,7 +55,7 @@ macro_rules! on_x_payload {
                 #[doc = "use traq_ws_bot::bot::builder;"]
                 #[doc = ""]
                 #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
-                #[doc = "    ."[<on_ $x:snake>]"(|event| {"]
+                #[doc = "    ."[<on_ $x:snake>]"(|event| async move {"]
                 #[doc = "        println!(\"{:?}\", event);"]
                 #[doc = "    })"]
                 #[doc = "    .build();"]
@@ -75,8 +75,8 @@ macro_rules! on_x_payload {
                 #[doc = "use traq_ws_bot::bot::builder;"]
                 #[doc = ""]
                 #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
-                #[doc = "    ."[<on_ $x:snake>]"(|event| {"]
-                #[doc = "        println!(\"{:?}\", event);"]
+                #[doc = "    ."[<on_ $x:snake _with_resource>]"(|event, resource| async move {"]
+                #[doc = "        println!(\"{:?}, {:?}\", event, resource);"]
                 #[doc = "    })"]
                 #[doc = "    .build();"]
                 #[doc = "```"]
@@ -120,7 +120,7 @@ impl<T: Send + Sync + 'static> TraqBot<T> {
     ///
     /// # async fn try_main() -> anyhow::Result<()> {
     /// let bot = builder("BOT_ACCESS_TOKEN")
-    ///     .on_message_created(|event| {
+    ///     .on_message_created(|event| async move {
     ///       println!("{:?}", event);
     ///     })
     ///     .build();
@@ -267,6 +267,7 @@ impl<T: Send + Sync + 'static> TraqBot<T> {
 pub fn builder(token: impl Into<String>) -> TraqBotBuilder<()> {
     TraqBotBuilder {
         token: token.into(),
+        resource: Some(()),
         ..Default::default()
     }
 }
@@ -326,7 +327,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     /// use traq_ws_bot::bot::builder;
     ///
     /// let bot = builder("BOT_ACCESS_TOKEN")
-    ///     .on_message_created(|event| {
+    ///     .on_message_created(|event| async move {
     ///         println!("{:?}", event);
     ///     })
     ///    .build();
@@ -387,7 +388,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     /// use traq_ws_bot::{bot::{builder, keys::Keys}, events::Events};
     ///
     /// let bot = builder("BOT_ACCESS_TOKEN")
-    ///     .on_event(Keys::Joined, |event| {
+    ///     .on_event(Keys::Joined, |event| async move {
     ///        if let Events::Joined(event) = event {
     ///           println!("{:?}", event);
     ///       }
@@ -428,7 +429,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     #[doc = "use traq_ws_bot::bot::builder;"]
     #[doc = ""]
     #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
-    #[doc = "    .on_error(|event| {"]
+    #[doc = "    .on_error(|event| async move {"]
     #[doc = "        println!(\"{:?}\", event);"]
     #[doc = "    })"]
     #[doc = "    .build();"]
@@ -448,8 +449,8 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     #[doc = "use traq_ws_bot::bot::builder;"]
     #[doc = ""]
     #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
-    #[doc = "    .on_error(|event, resource| {"]
-    #[doc = "        println!(\"{:?}\", event, resource);"]
+    #[doc = "    .on_error_with_resource(|event, resource| async move {"]
+    #[doc = "        println!(\"{:?}, {:?}\", event, resource);"]
     #[doc = "    })"]
     #[doc = "    .build();"]
     #[doc = "```"]
