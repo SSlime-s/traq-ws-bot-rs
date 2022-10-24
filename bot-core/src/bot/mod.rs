@@ -1,6 +1,5 @@
-use std::{any::Any, sync::Arc, collections::HashSet};
+use std::{any::Any, collections::HashSet, sync::Arc};
 
-use arrayvec::ArrayVec;
 use futures::{
     future::{self, BoxFuture},
     Future, StreamExt,
@@ -31,7 +30,7 @@ pub struct TraqBotBuilder<T: Send + Sync + 'static> {
     authorization_scheme: String,
     token: String,
     target_url: Url,
-    handlers: [Vec<Box<dyn Handler<T>>>; keys::KEYS_COUNT],
+    handlers: [Vec<Arc<dyn Handler<T>>>; keys::KEYS_COUNT],
     resource: Option<T>,
 }
 
@@ -40,7 +39,7 @@ pub struct TraqBot<T: Send + Sync + 'static> {
     token: String,
     ws_origin: Url,
     gateway_path: String,
-    handlers: [Box<[Box<dyn Handler<T>>]>; keys::KEYS_COUNT],
+    handlers: [Box<[Arc<dyn Handler<T>>]>; keys::KEYS_COUNT],
     resource: Arc<T>,
 }
 
@@ -64,7 +63,7 @@ macro_rules! on_x_payload {
                 where
                     Fut: Future<Output = ()> + std::marker::Send + 'static,
                 {
-                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
+                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Arc::new(handler));
                     self
                 }
                 #[doc = ""[<$x:camel>]" イベントを受け取った際のハンドラを登録する"]
@@ -84,7 +83,7 @@ macro_rules! on_x_payload {
                 where
                     Fut: Future<Output = ()> + std::marker::Send + 'static,
                 {
-                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
+                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Arc::new(handler));
                     self
                 }
             }
@@ -352,7 +351,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
                 .map(|v| v.into_boxed_slice())
                 .collect::<Vec<_>>()
                 .try_into()
-                .map_err(|v: Vec<Box<[Box<dyn Handler<T>>]>>| {
+                .map_err(|v: Vec<Box<[Arc<dyn Handler<T>>]>>| {
                     format!(
                         "Invalid handlers length: {} (expected: {})",
                         v.len(),
@@ -427,8 +426,9 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
         K: IntoIterator<Item = keys::Keys>,
     {
         let keys_set = keys.into_iter().collect::<HashSet<_>>();
+        let handler = Arc::new(handler);
         for key in keys_set {
-            self.handlers[key as usize].push(Box::new(handler));
+            self.handlers[key as usize].push(handler.clone());
         }
         self
     }
@@ -468,7 +468,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     where
         Fut: Future<Output = ()> + std::marker::Send + 'static,
     {
-        self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
+        self.handlers[keys::Keys::Error as usize].push(Arc::new(handler));
         self
     }
     #[doc = "Error イベントを受け取った際のハンドラを登録する"]
@@ -488,7 +488,7 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     where
         Fut: Future<Output = ()> + std::marker::Send + 'static,
     {
-        self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
+        self.handlers[keys::Keys::Error as usize].push(Arc::new(handler));
         self
     }
 
