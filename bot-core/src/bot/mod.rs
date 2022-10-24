@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
 use futures::{
     future::{self, BoxFuture},
@@ -17,9 +17,6 @@ pub mod handler;
 pub mod keys;
 
 use self::handler::Handler;
-
-pub type OnPanic = Box<dyn Any + Send>;
-pub type OnPanicHandler = Box<dyn Fn(OnPanic)>;
 
 pub const TRAQ_ORIGIN: &str = "https://q.trap.jp";
 pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
