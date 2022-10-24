@@ -31,7 +31,7 @@ pub struct TraqBotBuilder<T: Send + Sync + 'static> {
     authorization_scheme: String,
     token: String,
     target_url: Url,
-    handlers: ArrayVec<Vec<Box<dyn Handler<T>>>, { keys::KEYS_COUNT }>,
+    handlers: [Vec<Box<dyn Handler<T>>>; keys::KEYS_COUNT],
     resource: Option<T>,
 }
 
@@ -40,7 +40,7 @@ pub struct TraqBot<T: Send + Sync + 'static> {
     token: String,
     ws_origin: Url,
     gateway_path: String,
-    handlers: ArrayVec<Box<[Box<dyn Handler<T>>]>, { keys::KEYS_COUNT }>,
+    handlers: [Box<[Box<dyn Handler<T>>]>; keys::KEYS_COUNT],
     resource: Arc<T>,
 }
 
@@ -290,7 +290,7 @@ impl<T: Send + Sync + 'static> Default for TraqBotBuilder<T> {
                 .unwrap()
                 .join(TRAQ_WS_GATEWAY_PATH)
                 .unwrap(),
-            handlers: ArrayVec::from(handlers_arr),
+            handlers: handlers_arr,
             resource: Default::default(),
         }
     }
@@ -350,7 +350,16 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
                 .handlers
                 .into_iter()
                 .map(|v| v.into_boxed_slice())
-                .collect(),
+                .collect::<Vec<_>>()
+                .try_into()
+                .map_err(|v: Vec<Box<[Box<dyn Handler<T>>]>>| {
+                    format!(
+                        "Invalid handlers length: {} (expected: {})",
+                        v.len(),
+                        keys::KEYS_COUNT
+                    )
+                })
+                .unwrap(),
             resource: Arc::new(self.resource.unwrap()),
         }
     }
