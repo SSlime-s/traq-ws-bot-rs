@@ -34,19 +34,6 @@ pub enum Events {
     Error(String),
 }
 
-macro_rules! convert_handler {
-    ($handler:ident => $payload:pat) => {
-        paste! {
-            move |event: &Events| {
-                if let Events::$payload(inner) = event {
-                    $handler(inner);
-                }
-            }
-        }
-    };
-}
-pub(super) use convert_handler;
-
 macro_rules! from_inner {
     ($($name:ident),*$(,)?) => {
         paste! {

@@ -1,7 +1,10 @@
-use std::any::Any;
+use std::{any::Any, sync::Arc};
 
 use arrayvec::ArrayVec;
-use futures::{future, StreamExt};
+use futures::{
+    future::{self, BoxFuture},
+    Future, StreamExt,
+};
 use paste::paste;
 use reqwest::Url;
 use tokio_tungstenite::{
@@ -9,11 +12,12 @@ use tokio_tungstenite::{
     tungstenite::{handshake::client::generate_key, Message},
 };
 
-use crate::events::{convert_handler, payload, Events};
+use crate::events::{payload, Events};
 
+pub mod handler;
 pub mod keys;
 
-pub type Handler = Box<dyn Fn(&Events)>;
+use self::handler::Handler;
 
 pub type OnPanic = Box<dyn Any + Send>;
 pub type OnPanicHandler = Box<dyn Fn(OnPanic)>;
@@ -23,21 +27,21 @@ pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
 
 pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bots/ws";
 
-pub struct TraqBotBuilder {
+pub struct TraqBotBuilder<T: Send + Sync + 'static> {
     authorization_scheme: String,
     token: String,
     target_url: Url,
-    handlers: ArrayVec<Vec<Handler>, { keys::KEYS_COUNT }>,
-    on_handler_panic: Option<OnPanicHandler>,
+    handlers: ArrayVec<Vec<Box<dyn Handler<T>>>, { keys::KEYS_COUNT }>,
+    resource: Option<T>,
 }
 
-pub struct TraqBot {
+pub struct TraqBot<T: Send + Sync + 'static> {
     authorization_scheme: String,
     token: String,
     ws_origin: Url,
     gateway_path: String,
-    handlers: ArrayVec<Box<[Handler]>, { keys::KEYS_COUNT }>,
-    on_handler_panic: Option<OnPanicHandler>,
+    handlers: ArrayVec<Box<[Box<dyn Handler<T>>]>, { keys::KEYS_COUNT }>,
+    resource: Arc<T>,
 }
 
 macro_rules! on_x_payload {
@@ -56,19 +60,31 @@ macro_rules! on_x_payload {
                 #[doc = "    })"]
                 #[doc = "    .build();"]
                 #[doc = "```"]
-                pub fn [<on_ $x:snake>]<F: Fn(&payload::[<$x:camel>]) + 'static>(mut self, handler: F) -> Self {
-                    let handler = convert_handler!(handler => [<$x:camel>]);
+                pub fn [<on_ $x:snake>]<Fut>(mut self, handler: fn(payload::[<$x:camel>]) -> Fut) -> Self
+                where
+                    Fut: Future<Output = ()> + std::marker::Send + 'static,
+                {
                     self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
                     self
                 }
-                #[doc = [<$x:camel>] イベントを受け取った際のハンドラを複数同時に登録する]
-                #[doc(hidden)]
-                pub fn [<on_ $x:snake _multi>]<F: Fn(&payload::[<$x:camel>]) + 'static, Fs: Into<Vec<F>>>(mut self, handlers: Fs) -> Self {
-                    let handlers: Vec<_> = handlers.into();
-                    for handler in handlers {
-                        let handler = convert_handler!(handler => [<$x:camel>]);
-                        self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
-                    }
+                #[doc = ""[<$x:camel>]" イベントを受け取った際のハンドラを登録する"]
+                #[doc = "引数から resource を取得することができる"]
+                #[doc = ""]
+                #[doc = "# Example"]
+                #[doc = "```rust"]
+                #[doc = "use traq_ws_bot::bot::builder;"]
+                #[doc = ""]
+                #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
+                #[doc = "    ."[<on_ $x:snake>]"(|event| {"]
+                #[doc = "        println!(\"{:?}\", event);"]
+                #[doc = "    })"]
+                #[doc = "    .build();"]
+                #[doc = "```"]
+                pub fn [<on_ $x:snake _with_resource>]<Fut>(mut self, handler: fn(payload::[<$x:camel>], Arc<T>) -> Fut) -> Self
+                where
+                    Fut: Future<Output = ()> + std::marker::Send + 'static,
+                {
+                    self.handlers[keys::Keys::[<$x:camel>] as usize].push(Box::new(handler));
                     self
                 }
             }
@@ -77,31 +93,25 @@ macro_rules! on_x_payload {
 }
 
 macro_rules! handle_event_inner {
-    ($self:expr, $event:expr => {$($x:ident),*$(,)?}) => {
+    ($self:expr, $event:expr => {$($x:ident),*$(,)?}, $resource:expr) => {
         paste!{
             match $event {
                 $(
-                    Events::[<$x:camel>](_) => {
-                        for handler in $self.handlers[keys::Keys::[<$x:camel>] as usize].iter() {
-                            if let Some(on_panic) = &$self.on_handler_panic {
-                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    handler(&$event);
-                                }));
-                                if let Err(err) = result {
-                                    on_panic(err)
-                                }
-                            } else {
-                                handler(&$event);
-                            }
-                        }
-                    }
+                    Events::[<$x:camel>](_) => Box::pin(async {
+                        future::join_all($self.handlers[keys::Keys::[<$x:camel>] as usize].iter().map(
+                            |handler| async {
+                                handler.handle($event.clone(), $resource.clone()).await;
+                            },
+                        ))
+                        .await;
+                    }),
                 )*
             }
         }
     }
 }
 
-impl TraqBot {
+impl<T: Send + Sync + 'static> TraqBot<T> {
     /// BOT を起動する
     ///
     /// # Examples
@@ -158,7 +168,7 @@ impl TraqBot {
                             Message::Text(content) => {
                                 let event = serde_json::from_str(&content);
                                 if let Ok(event) = event {
-                                    self.handle_event(&event).await;
+                                    self.handle_event(&event, self.resource.clone()).await;
                                 } else {
                                     eprintln!("failed to parse event: {}", content);
                                 }
@@ -225,8 +235,8 @@ impl TraqBot {
     }
 
     /// イベントに対してハンドラを呼び出す
-    async fn handle_event(&self, event: &Events) {
-        handle_event_inner!(
+    async fn handle_event(&self, event: &Events, resource: Arc<T>) {
+        let promise: BoxFuture<()> = handle_event_inner!(
             self,
             event => {
                 Ping,
@@ -246,13 +256,15 @@ impl TraqBot {
                 TagAdded,
                 TagRemoved,
                 Error,
-            }
-        )
+            },
+            resource
+        );
+        promise.await;
     }
 }
 
 /// TraqBot の Builder を作成する
-pub fn builder(token: impl Into<String>) -> TraqBotBuilder {
+pub fn builder(token: impl Into<String>) -> TraqBotBuilder<()> {
     TraqBotBuilder {
         token: token.into(),
         ..Default::default()
@@ -262,11 +274,11 @@ pub fn builder(token: impl Into<String>) -> TraqBotBuilder {
 #[doc(hidden)]
 #[allow(unused)]
 #[rustfmt::skip]
-/*pub */ fn builder_with_config(_config: ()) -> TraqBotBuilder {
+/*pub */ fn builder_with_config(_config: ()) -> TraqBotBuilder<()> {
     unimplemented!()
 }
 
-impl Default for TraqBotBuilder {
+impl<T: Send + Sync + 'static> Default for TraqBotBuilder<T> {
     fn default() -> Self {
         let handlers_arr: [Vec<_>; keys::KEYS_COUNT] = Default::default();
 
@@ -278,9 +290,7 @@ impl Default for TraqBotBuilder {
                 .join(TRAQ_WS_GATEWAY_PATH)
                 .unwrap(),
             handlers: ArrayVec::from(handlers_arr),
-            on_handler_panic: Some(Box::new(|e| {
-                eprintln!("{:?}", e);
-            })),
+            resource: Default::default(),
         }
     }
 }
@@ -308,7 +318,7 @@ where
     }
 }
 
-impl TraqBotBuilder {
+impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
     /// TraqBotBuilder から TraqBot を作成する
     ///
     /// # Example
@@ -321,7 +331,7 @@ impl TraqBotBuilder {
     ///     })
     ///    .build();
     /// ```
-    pub fn build(self) -> TraqBot {
+    pub fn build(self) -> TraqBot<T> {
         let target_url_ws = convert_to_ws_url(self.target_url).unwrap();
         let ws_origin = target_url_ws
             .origin()
@@ -340,7 +350,7 @@ impl TraqBotBuilder {
                 .into_iter()
                 .map(|v| v.into_boxed_slice())
                 .collect(),
-            on_handler_panic: self.on_handler_panic,
+            resource: Arc::new(self.resource.unwrap()),
         }
     }
 
@@ -368,25 +378,6 @@ impl TraqBotBuilder {
         self
     }
 
-    /// 登録したハンドラが panic した際のハンドラを設定する
-    ///
-    /// **Warning**: このハンドラが panic した場合、プログラムが終了します
-    ///
-    /// # Example
-    /// ```rust
-    /// use traq_ws_bot::bot::builder;
-    ///
-    /// let bot = builder("BOT_ACCESS_TOKEN")
-    ///     .set_on_panic_handler(|e| {
-    ///         eprintln!("handler is panicked: {:?}", e);
-    ///     })
-    ///    .build();
-    /// ```
-    pub fn set_on_panic_handler<F: Fn(OnPanic) + 'static>(mut self, handler: F) -> Self {
-        self.on_handler_panic = Some(Box::new(handler));
-        self
-    }
-
     /// key のイベントに対応するハンドラを設定する
     ///
     /// ハンドラに渡される enum は key で指定したイベントであることが保証される
@@ -403,23 +394,11 @@ impl TraqBotBuilder {
     ///    })
     ///   .build();
     /// ```
-    pub fn on_event<F: Fn(&Events) + 'static>(mut self, key: keys::Keys, handler: F) -> Self {
+    pub fn on_event<Fut>(mut self, key: keys::Keys, handler: fn(Events) -> Fut) -> Self
+    where
+        Fut: Future<Output = ()> + std::marker::Send + 'static,
+    {
         self.handlers[key as usize].push(Box::new(handler));
-        self
-    }
-    /// key のイベントに対応するハンドラを複数同時に設定する
-    ///
-    /// ハンドラに渡される enum は key で指定したイベントであることが保証される
-    #[doc(hidden)]
-    pub fn on_event_multi<F: Fn(&Events) + 'static, Fs: Into<Vec<F>>>(
-        mut self,
-        key: keys::Keys,
-        handlers: Fs,
-    ) -> Self {
-        let handlers: Vec<_> = handlers.into();
-        for handler in handlers {
-            self.handlers[key as usize].push(Box::new(handler));
-        }
         self
     }
 
@@ -454,10 +433,57 @@ impl TraqBotBuilder {
     #[doc = "    })"]
     #[doc = "    .build();"]
     #[doc = "```"]
-    pub fn on_error<F: Fn(&str) + 'static>(mut self, handler: F) -> Self {
-        let handler = convert_handler!(handler => Error);
+    pub fn on_error<Fut>(mut self, handler: fn(String) -> Fut) -> Self
+    where
+        Fut: Future<Output = ()> + std::marker::Send + 'static,
+    {
         self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
         self
+    }
+    #[doc = "Error イベントを受け取った際のハンドラを登録する"]
+    #[doc = "引数から resource を取得することができる"]
+    #[doc = ""]
+    #[doc = "# Example"]
+    #[doc = "```rust"]
+    #[doc = "use traq_ws_bot::bot::builder;"]
+    #[doc = ""]
+    #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
+    #[doc = "    .on_error(|event, resource| {"]
+    #[doc = "        println!(\"{:?}\", event, resource);"]
+    #[doc = "    })"]
+    #[doc = "    .build();"]
+    #[doc = "```"]
+    pub fn on_error_with_resource<Fut>(mut self, handler: fn(String, Arc<T>) -> Fut) -> Self
+    where
+        Fut: Future<Output = ()> + std::marker::Send + 'static,
+    {
+        self.handlers[keys::Keys::Error as usize].push(Box::new(handler));
+        self
+    }
+
+    #[doc = "Resource を登録する"]
+    #[doc = ""]
+    #[doc = "**Warning**: これより前に登録したハンドラは削除される"]
+    #[doc = ""]
+    #[doc = "# Example"]
+    #[doc = "```rust"]
+    #[doc = "use traq_ws_bot::bot::builder;"]
+    #[doc = ""]
+    #[doc = "let bot = builder(\"BOT_ACCESS_TOKEN\")"]
+    #[doc = "    .insert_resource(\"Hello, world!\")"]
+    #[doc = "    .build();"]
+    #[doc = "```"]
+    pub fn insert_resource<U>(self, resource: U) -> TraqBotBuilder<U>
+    where
+        U: Send + Sync + 'static,
+    {
+        TraqBotBuilder {
+            token: self.token,
+            target_url: self.target_url,
+            resource: Some(resource),
+            authorization_scheme: self.authorization_scheme,
+            ..Default::default()
+        }
     }
     #[doc = "Error イベントを受け取った際のハンドラを複数同時に登録する"]
     #[doc(hidden)]
