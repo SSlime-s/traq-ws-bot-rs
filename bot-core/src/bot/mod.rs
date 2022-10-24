@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashSet, sync::Arc};
 
 use futures::{
     future::{self, BoxFuture},
-    Future, StreamExt,
+    pin_mut, Future, StreamExt,
 };
 use paste::paste;
 use reqwest::Url;
@@ -135,59 +135,68 @@ impl<T: Send + Sync + 'static> TraqBot<T> {
     /// ```
     pub async fn start(&self) -> anyhow::Result<()> {
         let host = self.get_ws_url().host_str().unwrap().to_owned();
-        let request = http::Request::builder()
-            .method("GET")
-            .header("Host", host)
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-Websocket-Version", "13")
-            .header("Sec-WebSocket-Key", generate_key())
-            .uri(self.get_ws_url().to_string())
-            .header(
-                "Authorization",
-                format!("{} {}", self.authorization_scheme, self.token),
-            )
-            .body(())?;
 
-        let (ws_stream, _) = connect_async(request).await?;
+        loop {
+            let request = http::Request::builder()
+                .method("GET")
+                .header("Host", &host)
+                .header("Connection", "Upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-Websocket-Version", "13")
+                .header("Sec-WebSocket-Key", generate_key())
+                .uri(self.get_ws_url().to_string())
+                .header(
+                    "Authorization",
+                    format!("{} {}", self.authorization_scheme, self.token),
+                )
+                .body(())?;
 
-        let (_tx, rx) = futures::channel::mpsc::unbounded();
-        let (write, read) = ws_stream.split();
+            let (ws_stream, _) = connect_async(request).await?;
 
-        let write_loop = rx.map(Ok).forward(write);
+            let (_tx, rx) = futures::channel::mpsc::unbounded();
+            let (write, read) = ws_stream.split();
 
-        let read_loop = {
-            read.for_each(|message| async {
-                match message {
-                    Ok(message) => {
+            let write_loop = rx.map(Ok).forward(write);
+
+            let read_loop = {
+                futures::TryStreamExt::try_for_each(
+                    read.map(|msg| -> Result<_, ()> { Ok(msg) }),
+                    |message| async {
                         match message {
-                            Message::Ping(_) => {
-                                // nop
-                            }
-                            Message::Text(content) => {
-                                let event = serde_json::from_str(&content);
-                                if let Ok(event) = event {
-                                    self.handle_event(&event, self.resource.clone()).await;
-                                } else {
-                                    eprintln!("failed to parse event: {}", content);
+                            Ok(message) => match message {
+                                Message::Ping(_) => {
+                                    // nop
+                                    Ok(())
                                 }
-                            }
-                            _ => {
-                                eprintln!("not supported message: {:?}", message);
+                                Message::Text(content) => {
+                                    let event = serde_json::from_str(&content);
+                                    if let Ok(event) = event {
+                                        self.handle_event(&event, self.resource.clone()).await;
+                                    } else {
+                                        eprintln!("failed to parse event: {}", content);
+                                    }
+                                    Ok(())
+                                }
+                                Message::Close(_) => Err(()),
+                                _ => {
+                                    eprintln!("not supported message: {:?}", message);
+                                    Ok(())
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("error: {:?}", e);
+                                Ok(())
                             }
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("error: {:?}", e);
-                    }
-                }
-            })
-        };
+                    },
+                )
+            };
 
-        let (write_res, read_res) = future::join(write_loop, read_loop).await;
-        let (_write_res, _read_res) = (write_res?, read_res);
+            pin_mut!(write_loop, read_loop);
+            future::select(read_loop, write_loop).await;
 
-        Ok(())
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
     }
 
     /// ws もしくは wss で始まる origin に相当する URL を返す
