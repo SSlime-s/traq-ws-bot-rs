@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use futures::{
     future::{self, BoxFuture},
@@ -22,6 +22,9 @@ pub const TRAQ_ORIGIN: &str = "https://q.trap.jp";
 pub const TRAQ_ORIGIN_WS: &str = "wss://q.trap.jp";
 
 pub const TRAQ_WS_GATEWAY_PATH: &str = "/api/v3/bots/ws";
+
+pub const INITIAL_RETRY_WAIT: Duration = Duration::from_secs(3);
+pub const MAX_RETRY_WAIT: Duration = Duration::from_secs(10 * 60);
 
 pub struct TraqBotBuilder<T: Send + Sync + 'static> {
     authorization_scheme: String,
@@ -132,68 +135,84 @@ impl<T: Send + Sync + 'static> TraqBot<T> {
     /// ```
     pub async fn start(&self) -> anyhow::Result<()> {
         let host = self.get_ws_url().host_str().unwrap().to_owned();
+        let mut retry_wait = INITIAL_RETRY_WAIT;
 
         loop {
-            let request = http::Request::builder()
-                .method("GET")
-                .header("Host", &host)
-                .header("Connection", "Upgrade")
-                .header("Upgrade", "websocket")
-                .header("Sec-Websocket-Version", "13")
-                .header("Sec-WebSocket-Key", generate_key())
-                .uri(self.get_ws_url().to_string())
-                .header(
-                    "Authorization",
-                    format!("{} {}", self.authorization_scheme, self.token),
-                )
-                .body(())?;
+            match self.start_inner(&host).await {
+                Ok(()) => {
+                    retry_wait = INITIAL_RETRY_WAIT;
+                }
+                Err(e) => {
+                    log::error!("Error: {}", e);
+                    retry_wait = (retry_wait * 2).min(MAX_RETRY_WAIT);
+                }
+            }
 
-            let (ws_stream, _) = connect_async(request).await?;
+            log::info!("Disconnected. retry after {} seconds", retry_wait.as_secs());
+            tokio::time::sleep(retry_wait).await;
+        }
+    }
 
-            let (_tx, rx) = futures::channel::mpsc::unbounded();
-            let (write, read) = ws_stream.split();
+    async fn start_inner(&self, host: &str) -> anyhow::Result<()> {
+        let request = http::Request::builder()
+            .method("GET")
+            .header("Host", host)
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-Websocket-Version", "13")
+            .header("Sec-WebSocket-Key", generate_key())
+            .uri(self.get_ws_url().to_string())
+            .header(
+                "Authorization",
+                format!("{} {}", self.authorization_scheme, self.token),
+            )
+            .body(())?;
 
-            let write_loop = rx.map(Ok).forward(write);
+        let (ws_stream, _) = connect_async(request).await?;
 
-            let read_loop = {
-                futures::TryStreamExt::try_for_each(
-                    read.map(|msg| -> Result<_, ()> { Ok(msg) }),
-                    |message| async {
-                        match message {
-                            Ok(message) => match message {
-                                Message::Ping(_) => {
-                                    // nop
-                                    Ok(())
-                                }
-                                Message::Text(content) => {
-                                    let event = serde_json::from_str(&content);
-                                    if let Ok(event) = event {
-                                        self.handle_event(&event, self.resource.clone()).await;
-                                    } else {
-                                        eprintln!("failed to parse event: {}", content);
-                                    }
-                                    Ok(())
-                                }
-                                Message::Close(_) => Err(()),
-                                _ => {
-                                    eprintln!("not supported message: {:?}", message);
-                                    Ok(())
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("error: {:?}", e);
+        let (_tx, rx) = futures::channel::mpsc::unbounded();
+        let (write, read) = ws_stream.split();
+
+        let write_loop = rx.map(Ok).forward(write);
+
+        let read_loop = {
+            futures::TryStreamExt::try_for_each(
+                read.map(|msg| -> Result<_, ()> { Ok(msg) }),
+                |message| async {
+                    match message {
+                        Ok(message) => match message {
+                            Message::Ping(_) => {
+                                // nop
                                 Ok(())
                             }
+                            Message::Text(content) => {
+                                let event = serde_json::from_str(&content);
+                                if let Ok(event) = event {
+                                    self.handle_event(&event, self.resource.clone()).await;
+                                } else {
+                                    eprintln!("failed to parse event: {}", content);
+                                }
+                                Ok(())
+                            }
+                            Message::Close(_) => Err(()),
+                            _ => {
+                                eprintln!("not supported message: {:?}", message);
+                                Ok(())
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("error: {:?}", e);
+                            Ok(())
                         }
-                    },
-                )
-            };
+                    }
+                },
+            )
+        };
 
-            pin_mut!(write_loop, read_loop);
-            future::select(read_loop, write_loop).await;
+        pin_mut!(write_loop, read_loop);
+        future::select(read_loop, write_loop).await;
 
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
+        Ok(())
     }
 
     /// ws もしくは wss で始まる origin に相当する URL を返す
