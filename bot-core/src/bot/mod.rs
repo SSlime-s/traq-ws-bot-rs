@@ -542,3 +542,20 @@ impl<T: Send + Sync + 'static> TraqBotBuilder<T> {
         }
     }
 }
+
+async fn tmp(_: String) {
+    println!("tmp");
+}
+
+#[allow(dead_code)]
+async fn tmp2() {
+    let _bot = builder("")
+        .on_error(tmp)
+        .on_error(|_: String| async move { println!("tmp") })
+        .on_event(keys::Keys::Error, |event| async {
+            if let Events::Error(event) = event {
+                println!("{:?}", event);
+                tmp(event).await;
+            }
+        });
+}

@@ -9,6 +9,9 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# [features]
+# default = [""]
+
 [dependencies]
 chrono = { version = "0.4.21", features = ["serde"] }
 serde = { version = "1.0.143", features = ["derive"] }
@@ -29,3 +32,4 @@ log = "0.4.17"
 [dependencies.openapi]
 version = "3.0.0"
 path = "../openapi"
+optional = true

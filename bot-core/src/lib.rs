@@ -5,6 +5,7 @@ pub mod bot;
 pub mod events;
 pub mod utils;
 
+#[cfg(openapi)]
 pub extern crate openapi;
 
 #[cfg(test)]
