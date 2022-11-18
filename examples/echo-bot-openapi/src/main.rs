@@ -29,10 +29,10 @@ async fn main() {
 
             match res {
                 Ok(message) => {
-                    dbg!("Success!: {:?}", message);
+                    dbg!("Success!", message);
                 }
                 Err(e) => {
-                    dbg!("Error: {}", e);
+                    dbg!("Error", e);
                 }
             }
         })
