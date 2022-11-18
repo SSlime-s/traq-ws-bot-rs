@@ -21,3 +21,12 @@ pub fn create_client(bot_access_token: impl Into<String>) -> reqwest::Client {
         .build()
         .unwrap()
 }
+
+/// BOT の access token から openapi の configuration を作成する
+#[cfg(feature = "openapi")]
+pub fn create_configuration(bot_access_token: impl Into<String>) -> openapi::apis::configuration::Configuration {
+    openapi::apis::configuration::Configuration {
+        bearer_access_token: Some(bot_access_token.into()),
+        ..Default::default()
+    }
+}

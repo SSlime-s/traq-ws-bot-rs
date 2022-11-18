@@ -1,6 +1,7 @@
 use traq_ws_bot::{
     bot::builder,
     openapi::{self, models::PostMessageRequest},
+    utils::create_configuration,
 };
 
 #[tokio::main]
@@ -17,13 +18,10 @@ async fn main() {
                 embed: Some(false),
             };
 
-            let config = openapi::apis::configuration::Configuration {
-                bearer_access_token: Some(resource.as_ref().clone()),
-                ..Default::default()
-            };
+            let configuration = create_configuration(resource.as_ref());
 
             let res = openapi::apis::message_api::post_message(
-                &config,
+                &configuration,
                 &event.message.channel_id,
                 Some(post_message_request),
             )
