@@ -24,8 +24,9 @@ async fn main() {
             });
 
             let res = client.post(&url).json(&body).send().await.unwrap();
+            let json = res.json::<serde_json::Value>().await.unwrap();
 
-            dbg!(res.status());
+            dbg!(json);
         })
         .build();
 

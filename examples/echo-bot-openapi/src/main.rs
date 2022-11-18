@@ -25,10 +25,16 @@ async fn main() {
                 &event.message.channel_id,
                 Some(post_message_request),
             )
-            .await
-            .unwrap();
+            .await;
 
-            dbg!(res);
+            match res {
+                Ok(message) => {
+                    dbg!("Success!: {:?}", message);
+                }
+                Err(e) => {
+                    dbg!("Error: {}", e);
+                }
+            }
         })
         .build();
 
