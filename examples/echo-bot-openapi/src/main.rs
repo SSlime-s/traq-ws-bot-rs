@@ -1,7 +1,6 @@
 use traq_ws_bot::{
-    bot::{builder, TRAQ_ORIGIN},
+    bot::builder,
     openapi::{self, models::PostMessageRequest},
-    utils::create_client,
 };
 
 #[tokio::main]
@@ -13,17 +12,6 @@ async fn main() {
     let bot = builder(&bot_access_token)
         .insert_resource(bot_access_token.clone())
         .on_direct_message_created_with_resource(|event, resource| async move {
-            let client = create_client(resource.as_ref());
-            let url = format!(
-                "{}/api/v3/channels/{}/messages",
-                TRAQ_ORIGIN, event.message.channel_id
-            );
-
-            let body = serde_json::json!({
-                "content": event.message.plain_text,
-                "embed": false
-            });
-
             let post_message_request = PostMessageRequest {
                 content: event.message.plain_text,
                 embed: Some(false),
@@ -31,7 +19,6 @@ async fn main() {
 
             let config = openapi::apis::configuration::Configuration {
                 bearer_access_token: Some(resource.as_ref().clone()),
-                client,
                 ..Default::default()
             };
 
@@ -43,10 +30,7 @@ async fn main() {
             .await
             .unwrap();
 
-            // let res = client.post(&url).json(&body).send().await.unwrap();
-
             dbg!(res);
-            // dbg!(res.status());
         })
         .build();
 
