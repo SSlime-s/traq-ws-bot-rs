@@ -1,10 +1,15 @@
+//!
+//!
+
 pub mod bot;
 pub mod events;
 pub mod utils;
 
+pub extern crate openapi;
+
 #[cfg(test)]
 mod tests {
-    use crate::events::{common::Base, payload::TagRemoved, Events};
+    use crate::events::{self, common::Base, payload::TagRemoved, Events};
 
     #[test]
     fn it_works() {
