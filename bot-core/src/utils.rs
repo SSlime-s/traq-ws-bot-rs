@@ -30,3 +30,94 @@ pub fn create_configuration(bot_access_token: impl Into<String>) -> openapi::api
         ..Default::default()
     }
 }
+
+/// interval 間に最大 max_count 回しか実行されないようにすることができる struct
+///
+/// **Default:** `interval` は 5 秒, `max_count` は 5 回
+///
+/// # Example
+/// ```
+/// use std::time::Duration;
+/// use traq_ws_bot::utils::RateLimiter;
+///
+/// let mut limiter = RateLimiter::new(5, Duration::from_secs(5)); // RateLimiter::default() と同じ
+/// loop {
+///    if limiter.try_acquire() {
+///        // 5秒間に5回しか実行されない
+///        println!("Hello");
+///    }
+/// }
+/// ```
+pub struct RateLimiter {
+    interval: std::time::Duration,
+    semaphore: tokio::sync::Semaphore,
+}
+impl RateLimiter {
+    /// interval 間に最大 max_count 回しか実行されないようにすることができる struct を作成する
+    pub fn new(max_count: usize, interval: std::time::Duration) -> Self {
+        Self {
+            interval,
+            semaphore: tokio::sync::Semaphore::new(max_count),
+        }
+    }
+
+    /// lock を取得するまで待機する
+    ///
+    /// # Example
+    /// ```
+    /// use std::time::Duration;
+    /// use traq_ws_bot::utils::RateLimiter;
+    ///
+    /// let mut limiter = RateLimiter::new(5, Duration::from_secs(5)); // RateLimiter::default() と同じ
+    /// loop {
+    ///     await limiter.acquire();
+    ///     // 5秒間に5回しか実行されない
+    ///     println!("Hello");
+    /// }
+    pub async fn acquire(&'static self) -> () {
+        let permit = self.semaphore.acquire().await.unwrap();
+        let interval = self.interval;
+        tokio::spawn(async move {
+            tokio::time::sleep(interval).await;
+            drop(permit);
+        });
+    }
+
+    /// lock を取得できたら true を返す
+    ///
+    /// # Example
+    /// ```
+    /// use std::time::Duration;
+    /// use traq_ws_bot::utils::RateLimiter;
+    ///
+    /// let mut limiter = RateLimiter::new(5, Duration::from_secs(5)); // RateLimiter::default() と同じ
+    /// loop {
+    ///     if limiter.try_acquire() {
+    ///        // 5秒間に5回しか実行されない
+    ///       println!("Hello");
+    ///    }
+    /// }
+    pub fn try_acquire(&'static self) -> bool {
+        let permit = self.semaphore.try_acquire();
+        if let Ok(permit) = permit {
+            let interval = self.interval;
+            tokio::spawn(async move {
+                tokio::time::sleep(interval).await;
+                drop(permit);
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 現在 lock が取得できるかどうかを返す
+    pub fn is_available(&self) -> bool {
+        self.semaphore.available_permits() > 0
+    }
+}
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new(5, std::time::Duration::from_secs(5))
+    }
+}
