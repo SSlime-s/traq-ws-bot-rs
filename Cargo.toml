@@ -1,5 +1,2 @@
 [workspace]
-members = [
-  "bot-core",
-  "macros",
-]
+members = ["bot-core", "openapi"]

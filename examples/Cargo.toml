@@ -1,4 +1,5 @@
 [workspace]
 members = [
   "echo-bot",
+  "echo-bot-openapi"
 ]
