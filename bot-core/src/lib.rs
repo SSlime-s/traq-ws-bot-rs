@@ -5,8 +5,8 @@ pub mod bot;
 pub mod events;
 pub mod utils;
 
-#[cfg(openapi)]
-pub extern crate openapi;
+#[cfg(feature = "openapi")]
+pub use openapi;
 
 #[cfg(test)]
 mod tests {
