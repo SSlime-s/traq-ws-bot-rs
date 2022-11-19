@@ -1,3 +1,5 @@
+use tokio::sync::Mutex;
+
 use crate::events::common::Message;
 
 /// メッセージに `target_user_id` に対するメンションが含まれているかどうかを返す
@@ -50,14 +52,20 @@ pub fn create_configuration(bot_access_token: impl Into<String>) -> openapi::api
 /// ```
 pub struct RateLimiter {
     interval: std::time::Duration,
-    semaphore: tokio::sync::Semaphore,
+    tx: tokio::sync::mpsc::Sender<()>,
+    rx: Mutex<tokio::sync::mpsc::Receiver<()>>,
 }
 impl RateLimiter {
     /// interval 間に最大 max_count 回しか実行されないようにすることができる struct を作成する
     pub fn new(max_count: usize, interval: std::time::Duration) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::channel(max_count);
+        for _ in 0..max_count {
+            tx.try_send(()).unwrap();
+        }
         Self {
             interval,
-            semaphore: tokio::sync::Semaphore::new(max_count),
+            tx,
+            rx: Mutex::new(rx),
         }
     }
 
@@ -74,12 +82,15 @@ impl RateLimiter {
     ///     // 5秒間に5回しか実行されない
     ///     println!("Hello");
     /// }
-    pub async fn acquire(&'static self) -> () {
-        let permit = self.semaphore.acquire().await.unwrap();
+    pub async fn acquire(&self) -> () {
+        {
+            self.rx.lock().await.recv().await.unwrap();
+        }
+        let tx = self.tx.clone();
         let interval = self.interval;
         tokio::spawn(async move {
             tokio::time::sleep(interval).await;
-            drop(permit);
+            tx.send(()).await.unwrap();
         });
     }
 
@@ -97,23 +108,19 @@ impl RateLimiter {
     ///       println!("Hello");
     ///    }
     /// }
-    pub fn try_acquire(&'static self) -> bool {
-        let permit = self.semaphore.try_acquire();
-        if let Ok(permit) = permit {
+    pub async fn try_acquire(&self) -> bool {
+        let try_recv = {
+            self.rx.lock().await.try_recv().is_ok()
+        };
+        if try_recv {
+            let tx = self.tx.clone();
             let interval = self.interval;
             tokio::spawn(async move {
                 tokio::time::sleep(interval).await;
-                drop(permit);
+                tx.send(()).await.unwrap();
             });
-            true
-        } else {
-            false
         }
-    }
-
-    /// 現在 lock が取得できるかどうかを返す
-    pub fn is_available(&self) -> bool {
-        self.semaphore.available_permits() > 0
+        try_recv
     }
 }
 impl Default for RateLimiter {
