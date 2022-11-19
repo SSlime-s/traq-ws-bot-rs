@@ -12,7 +12,7 @@ struct Resource {
 async fn main() {
     dotenv::dotenv().ok();
 
-    let bot_access_token = std::env::var("BOT_ACCESS_TOKEN").unwrap_or_else(|_| String::new());
+    let bot_access_token = std::env::var("BOT_ACCESS_TOKEN").unwrap();
     let limiter = RateLimiter::default();
     let resource = Resource {
         bot_access_token: bot_access_token.clone(),
