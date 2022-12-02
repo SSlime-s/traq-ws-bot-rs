@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::events::common::Message;
 #[cfg(feature = "openapi")]
@@ -80,7 +80,7 @@ impl RateLimiter {
     ///     // 5秒間に5回しか実行されない
     ///     println!("Hello");
     /// }
-    pub async fn acquire(&self) -> () {
+    pub async fn acquire(&self) {
         let semaphore = self.semaphore.clone();
         let permit = semaphore.acquire_owned().await.unwrap();
         let interval = self.interval;
