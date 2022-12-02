@@ -33,7 +33,7 @@ async fn main() {
                 "embed": false
             });
 
-            if !resource.limiter.try_acquire().await {
+            if !resource.limiter.try_acquire() {
                 dbg!("Rate limit exceeded");
                 return;
             }
