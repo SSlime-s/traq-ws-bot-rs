@@ -7,5 +7,7 @@ pub mod events;
 pub mod utils;
 
 #[cfg(feature = "openapi")]
-#[doc(inline)]
-pub use openapi;
+pub mod openapi;
+#[cfg(feature = "openapi")]
+#[macro_use]
+extern crate serde_derive;

@@ -1,6 +1,8 @@
 use tokio::sync::Mutex;
 
 use crate::events::common::Message;
+#[cfg(feature = "openapi")]
+use crate::openapi;
 
 /// メッセージに `target_user_id` に対するメンションが含まれているかどうかを返す
 pub fn is_mentioned_message(message: &Message, target_user_id: &str) -> bool {
