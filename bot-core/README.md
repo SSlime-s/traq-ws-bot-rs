@@ -39,4 +39,4 @@ Open API による自動生成のコードを用いることもでき、`traq_ws
 ### デプロイ方法
 WIP
 
-https://github.com/SSlime-s/BOT_SSlime/blob/main/showcase.yaml や https://github.com/SSlime-s/BOT_SSlime/tree/main/.github を参考に書く
+<https://github.com/SSlime-s/BOT_SSlime/blob/main/showcase.yaml> や <https://github.com/SSlime-s/BOT_SSlime/tree/main/.github> を参考に書く
