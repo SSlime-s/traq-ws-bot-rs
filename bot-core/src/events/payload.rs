@@ -94,6 +94,62 @@ gp_struct!(
         user: User,
     }
 
+    struct UserGroupCreated {
+        #[serde(flatten)]
+        base: Base,
+
+        group: Group,
+    }
+
+    struct UserGroupUpdated {
+        #[serde(flatten)]
+        base: Base,
+
+        group_id: Uuid,
+    }
+
+    struct UserGroupDeleted {
+        #[serde(flatten)]
+        base: Base,
+
+        group_id: Uuid,
+    }
+
+    struct UserGroupMemberAdded {
+        #[serde(flatten)]
+        base: Base,
+
+        group_member: GroupMember,
+    }
+
+    struct UserGroupMemberUpdated {
+        #[serde(flatten)]
+        base: Base,
+
+        group_member: GroupMember,
+    }
+
+    struct UserGroupMemberRemoved {
+        #[serde(flatten)]
+        base: Base,
+
+        group_member: GroupMember,
+    }
+
+    struct UserGroupAdminAdded {
+        #[serde(flatten)]
+        base: Base,
+
+        group_member: GroupMember,
+    }
+
+    struct UserGroupAdminRemoved {
+        #[serde(flatten)]
+        base: Base,
+
+        group_member: GroupMember,
+    }
+
     struct StampCreated {
         #[serde(flatten)]
         base: Base,

@@ -13,6 +13,14 @@ pub enum Keys {
     ChannelCreated,
     ChannelTopicChanged,
     UserCreated,
+    UserGroupCreated,
+    UserGroupUpdated,
+    UserGroupDeleted,
+    UserGroupMemberAdded,
+    UserGroupMemberUpdated,
+    UserGroupMemberRemoved,
+    UserGroupAdminAdded,
+    UserGroupAdminRemoved,
     StampCreated,
     TagAdded,
     TagRemoved,
@@ -28,7 +36,7 @@ impl IntoIterator for Keys {
     }
 }
 
-pub const KEYS_ALL: [Keys; 17] = [
+pub const KEYS_ALL: [Keys; 25] = [
     Keys::Ping,
     Keys::Joined,
     Keys::Left,
@@ -42,6 +50,14 @@ pub const KEYS_ALL: [Keys; 17] = [
     Keys::ChannelCreated,
     Keys::ChannelTopicChanged,
     Keys::UserCreated,
+    Keys::UserGroupCreated,
+    Keys::UserGroupUpdated,
+    Keys::UserGroupDeleted,
+    Keys::UserGroupMemberAdded,
+    Keys::UserGroupMemberUpdated,
+    Keys::UserGroupMemberRemoved,
+    Keys::UserGroupAdminAdded,
+    Keys::UserGroupAdminRemoved,
     Keys::StampCreated,
     Keys::TagAdded,
     Keys::TagRemoved,

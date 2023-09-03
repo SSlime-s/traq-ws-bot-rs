@@ -37,6 +37,30 @@ gp_struct!(
         updated_at: Time,
     }
 
+    struct GroupMember {
+        group_id: Uuid,
+        user_id: Uuid,
+    }
+
+    struct GroupMemberWithRole {
+        group_id: Uuid,
+        user_id: Uuid,
+        role: String,
+    }
+
+    struct Group {
+        id: Uuid,
+        name: String,
+        description: String,
+        #[serde(rename = "type")]
+        type_: String,
+        icon: Uuid,
+        admins: Vec<GroupMember>,
+        members: Vec<GroupMemberWithRole>,
+        created_at: Time,
+        updated_at: Time,
+    }
+
     struct DeletedMessage {
         id: Uuid,
         channel_id: Uuid,
